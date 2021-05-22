@@ -5,3 +5,4 @@ This is meant to be an educational project.
 
 ## License
 [WTFPL](https://wtfpl.net)
+One dependency, `bump.lua`, is licensed under [MIT](https://opensource.org/licenses/MIT)
