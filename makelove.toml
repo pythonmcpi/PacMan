@@ -1,0 +1,28 @@
+name = "Pacman"
+default_targets = ["win32", "win64"]
+build_directory = "makelove-build"
+
+love_files = [
+    "::git-ls-tree::",
+    "-*/.*",
+]
+
+love_version = "11.3"
+
+icon_file = "assets/icon.png"
+
+[windows.exe_metadata]
+FileDescription = "Pacman 1.0"
+FileVersion = "1.0"
+CompanyName = "pipythonmc"
+LegalCopyright = "Copyright © 2021 Pipythonmc"
+ProductName = "Pacman"
+OriginalFilename = "pacman.exe"
+
+[win32]
+love_binaries = "..\\love-11.3-win32"
+artifacts = "directory"
+
+[win64]
+love_binaries = "..\\love-11.3-win64"
+artifacts = "directory"
