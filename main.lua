@@ -42,9 +42,7 @@ local function reset()
 end
 
 function love.load()
-    --lovesize.set(896, 784)
-    lovesize.set(448, 392)
-    --lovesize.set(224, 196)
+    lovesize.set(395, 490)
     reset()
     cache.font = love.graphics.newFont("assets/consolas.ttf", 35)
     cache.spritesheet = love.graphics.newImage("assets/sprites.png")
@@ -67,9 +65,10 @@ function love.draw()
     local wco = map.wall_corner_out
     for i = 0, 27 do
         for j = 0, 31 do
-            love.graphics.draw(spritesheet, wco, 0+14*i, 0+14*j)
+            love.graphics.draw(spritesheet, wco, 14*i, 14+14*j)
         end
     end
+    love.graphics.rectangle('line', 0, 14, 28*14, 32*14)
     --love.graphics.draw(spritesheet, wco, 0, 0)
     
     lovesize.finish()
