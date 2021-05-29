@@ -513,6 +513,34 @@ local function create_layout()
                                {wall, 4},
                                {wall, 2},
                                {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {wall, 4},
+                               {wall, 2},
+                               {pellet, 1},
+                               {outer_wall, 2},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1} })
+    table.insert(map_layout, { {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {blank, 1},
+                               {outer_wall, 4},
+                               {pellet, 1},
+                               {wall, 4},
+                               {wall, 2},
+                               {blank, 1},
                                {wall_corner_out, 1},
                                {wall, 1},
                                {wall, 1},
@@ -918,7 +946,7 @@ local function reset()
 end
 
 function love.load()
-    lovesize.set(395, 490)
+    lovesize.set(395, 476)
     buffer = love.graphics.newCanvas(395, 490)
     reset()
     cache.font = love.graphics.newFont("assets/consolas.ttf", 35)
@@ -946,14 +974,6 @@ function love.draw()
     
     love.graphics.setCanvas(buffer)
     local spritesheet = cache.spritesheet
-    for i = 0, 27 do
-        for j = 0, 30 do
-            love.graphics.draw(spritesheet, map_key[(i+j)%11+1], 14*i, 14+14*j)
-        end
-    end
-    love.graphics.setColor(0, 1, 0, 1)
-    --love.graphics.rectangle('fill', 0, 0, 395, 490)
-    love.graphics.setColor(1, 1, 1, 1)
     for i, v in ipairs(map_layout) do
         for j, v in ipairs(v) do
             if v[1] == 12 then
@@ -971,9 +991,6 @@ function love.draw()
     --love.graphics.draw(spritesheet, wco, 0, 0)
     love.graphics.setCanvas()
     lovesize.begin()
-    love.graphics.setColor(0, 1, 0, 1)
-    love.graphics.rectangle('fill', 0, 0, 800, 600)
-    love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(buffer)
     
     lovesize.finish()
