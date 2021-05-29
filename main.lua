@@ -1,8 +1,6 @@
 --[[ Pacman
 A recreation of pacman in love2d.
 
-The wall sprites are 14x14 instead of 7x7, which might complicate things.
-
 Todo:
 - Ghosts
   - Blinky
@@ -14,10 +12,11 @@ Todo:
 - Dying
 - Cheats (accessed using the Konami code)
   - Noclip (snap to grid when disabling)
-- Pause screen indicator
 - Clickable pause button
 - Transitions
   - Countdown before starting
+- Menu
+- Highscores
 
 Notes:
 - A lot of sprites will need to be offset by 7 to fix rotation
@@ -26,13 +25,11 @@ Notes:
 ]]
 
 local lovesize = require("lovesize")
-local bump = require("bump")
 
 local cache = {}
 local gamestate = { isPaused = false, score = 0, lives = 3, level = 1 }
 local map = { loaded = false } -- Map quad cache
 local animation = {pacman = {}}
-local res = {x = 800, y = 600}
 
 -- Map keys based on quad indexes
 local map_layout = {}
@@ -972,19 +969,6 @@ local function load_map()
 end
 
 local function reset()
-    -- Map Size: 32x28
-    local world = bump.newWorld(31)
-    gamestate.world = world
-    local wall_index = 0
-    for i, v in ipairs(map_layout) do
-        for j, v in ipairs(v) do
-            if ultraVerbose then
-                print("wall" .. tostring(wall_index) .. " - " .. tostring(v[1]) .. " r " .. tostring(v[2]))
-            end
-            world:add("wall" .. tostring(wall_index), j*14, i*14, 14, 14)
-            wall_index = wall_index + 1
-        end
-    end
     gamestate.player = {x = 196, y = 343, direction = 0, new_direction = 0, animframe = 0}
 end
 
@@ -1159,15 +1143,17 @@ function love.draw()
     lovesize.begin()
     love.graphics.draw(buffer)
     
-    lovesize.finish()
-    
     if gamestate.isPaused then
         love.graphics.setColor(1, 1, 1, 0.3)
-        love.graphics.rectangle('fill', 0, 0, res.x, res.y)
+        love.graphics.rectangle('fill', 0, 0, 395, 476)
         love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.rectangle('fill', 160, 200, 25, 81)
+        love.graphics.rectangle('fill', 210, 200, 25, 81)
     else
         gamestate.player.animframe = gamestate.player.animframe + 0.1
     end
+    
+    lovesize.finish()
     
     if debugEnabled then
         love.graphics.print("FPS: " .. tostring(love.timer.getFPS()))
@@ -1187,10 +1173,6 @@ function love.keypressed(k)
     end
     if k == 'escape' then
         gamestate.isPaused = not gamestate.isPaused
-    elseif k == 'r' then
-        if gamestate.isPaused then
-            reset_game()
-        end
     end
 end
 
@@ -1204,7 +1186,6 @@ function love.mousereleased(x, y, button, istouch, presses)
 end
 
 function love.resize(w, h)
-    res.x, res.y = w, h
     lovesize.resize(w, h)
 end
 
