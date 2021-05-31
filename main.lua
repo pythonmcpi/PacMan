@@ -7,16 +7,16 @@ Todo:
   - Pinky
   - Inky
   - Clyde
+- Dying
 - Level count display
 - Life count display
-- Dying
 - Cheats (accessed using the Konami code)
   - Noclip (snap to grid when disabling)
-- Clickable pause button
 - Transitions
   - Countdown before starting
 - Menu
 - Highscores
+- Don't animate pacman when at wall
 
 Notes:
 - A lot of sprites will need to be offset by 7 to fix rotation
@@ -29,7 +29,7 @@ local lovesize = require("lovesize")
 local cache = {}
 local gamestate = { isPaused = false, score = 0, lives = 3, level = 1 }
 local map = { loaded = false } -- Map quad cache
-local animation = {pacman = {}}
+local animation = {pacman = {}, blinky = {{}, {}, {}, {}}}
 
 -- Map keys based on quad indexes
 local map_layout = {}
@@ -965,11 +965,39 @@ local function load_map()
     map.blank = love.graphics.newQuad(212, 49, 14, 14, w, h) -- This shouldn't ever be rendered but I'm adding it here just in case something bugs out
     table.insert(animation.pacman, love.graphics.newQuad(20, 1, 12, 13, w, h))
     table.insert(animation.pacman, love.graphics.newQuad(4, 1, 9, 13, w, h))
+    table.insert(animation.blinky[1], love.graphics.newQuad(4, 65, 14, 14, w, h)) -- Right
+    table.insert(animation.blinky[1], love.graphics.newQuad(20, 65, 14, 14, w, h))
+    table.insert(animation.blinky[2], love.graphics.newQuad(100, 65, 14, 14, w, h)) -- Down
+    table.insert(animation.blinky[2], love.graphics.newQuad(116, 65, 14, 14, w, h))
+    table.insert(animation.blinky[3], love.graphics.newQuad(36, 65, 14, 14, w, h)) -- Left
+    table.insert(animation.blinky[3], love.graphics.newQuad(52, 65, 14, 14, w, h))
+    table.insert(animation.blinky[4], love.graphics.newQuad(68, 65, 14, 14, w, h)) -- Up
+    table.insert(animation.blinky[4], love.graphics.newQuad(84, 65, 14, 14, w, h))
     map.loaded = true
+end
+
+local function newGhost(x, y)
+    local ghost = {}
+    ghost.x = x or 14*14-7
+    ghost.y = y or 12*14
+    ghost.direction = 0
+    function ghost:update() end
+    function ghost:draw() end
+    return ghost
+end
+
+local function newBlinky(x, y)
+    local ghost = newGhost(x, y)
+    function ghost:draw()
+        love.graphics.draw(cache.spritesheet, animation.blinky[self.direction+1][1], self.x, self.y)
+    end
+    return ghost
 end
 
 local function reset()
     gamestate.player = {x = 196, y = 343, direction = 0, new_direction = 0, animframe = 0}
+    gamestate.blinky = newBlinky()
+    gamestate.ghostmode = 0 -- Chase mode
 end
 
 local function align(x, y)
@@ -1074,7 +1102,7 @@ function love.load()
     map_key = {map.wall_corner_out, map.wall_corner_in, map.wall, map.cage_corner, map.cage, map.outer_wall_corner_out, map.outer_wall_corner_in, map.outer_wall, map.pellet, map.power_pellet, map.cage_door, map.blank}
 end
 
-function love.update(dt)
+local function update()
     if gamestate.isPaused then
         
     else
@@ -1084,13 +1112,13 @@ function love.update(dt)
         end
         local player = gamestate.player
         local id = love.keyboard.isDown
-        if id("right") then
+        if id("right") or id("d") or id("l") then
             player.new_direction = 0
-        elseif id("down") then
+        elseif id("down") or id("s") or id("k") then
             player.new_direction = 1
-        elseif id("left") then
+        elseif id("left") or id("a") or id("j") then
             player.new_direction = 2
-        elseif id("up") then
+        elseif id("up") or id("w") or id("i") then
             player.new_direction = 3
         end
         local speed = 1
@@ -1105,6 +1133,20 @@ function love.update(dt)
             local vel = dirToVel()
             player.x = player.x + vel.x * speed
             player.y = player.y + vel.y * speed
+        end
+    end
+end
+
+do
+    local time_past = 0
+    function love.update(dt)
+        time_past = time_past + dt
+        if time_past > 3 then
+            time_past = 0
+        end
+        while time_past >= 0.016 do -- 0.016 is approx. 1/60 (game should run at 60 fps)
+            time_past = time_past - 0.016
+            update()
         end
     end
 end
@@ -1132,12 +1174,17 @@ function love.draw()
         love.graphics.rectangle('line', ax, ay, 14, 14)
         local vel = dirToVel()
         local turn = ndirToVel()
-        local bx, by = align(gamestate.player.x + vel.x*14, gamestate.player.y + vel.y*14)
-        love.graphics.rectangle('line', bx, by, 14, 14)
-        local cx, cy = align(gamestate.player.x + turn.x*14, gamestate.player.y + turn.y*14)
-        love.graphics.rectangle('line', cx, cy, 14, 14)
+        ax, ay = align(gamestate.player.x + vel.x*14, gamestate.player.y + vel.y*14)
+        love.graphics.rectangle('line', ax, ay, 14, 14)
+        ax, ay = align(gamestate.player.x + turn.x*14, gamestate.player.y + turn.y*14)
+        love.graphics.rectangle('line', ax, ay, 14, 14)
+        ax, ay = align(gamestate.blinky.x, gamestate.blinky.y)
+        love.graphics.setColor(1, 0, 0, 1)
+        love.graphics.rectangle('line', ax, ay, 14, 14)
+        love.graphics.setColor(1, 1, 1, 1)
     end
     love.graphics.draw(spritesheet, animation.pacman[math.floor(gamestate.player.animframe)%2+1], gamestate.player.x, gamestate.player.y, gamestate.player.direction*0.5*3.14159, 1, 1, 7, 7)
+    gamestate.blinky:draw()
     --love.graphics.rectangle('line', 0, 14, 28*14, 31*14)
     love.graphics.setCanvas()
     lovesize.begin()
@@ -1155,15 +1202,18 @@ function love.draw()
     
     lovesize.finish()
     
+    love.graphics.rectangle('fill', 10, 10, 10, 30)
+    love.graphics.rectangle('fill', 30, 10, 10, 30)
+    
     if debugEnabled then
-        love.graphics.print("FPS: " .. tostring(love.timer.getFPS()))
-        love.graphics.print("X: " .. tostring(gamestate.player.x), 0, 10)
-        love.graphics.print("Y: " .. tostring(gamestate.player.y), 0, 20)
+        love.graphics.print("FPS: " .. tostring(love.timer.getFPS()), 0, 50)
+        love.graphics.print("X: " .. tostring(gamestate.player.x), 0, 60)
+        love.graphics.print("Y: " .. tostring(gamestate.player.y), 0, 70)
         local x, y = align(gamestate.player.x, gamestate.player.y)
-        love.graphics.print("Align: " .. tostring(x) .. ", " .. tostring(y), 0, 30)
+        love.graphics.print("Align: " .. tostring(x) .. ", " .. tostring(y), 0, 80)
         x, y = getTile(gamestate.player.x, gamestate.player.y)
-        love.graphics.print("Block: " .. tostring(x) .. ", " .. tostring(y), 0, 40)
-        love.graphics.print("Score: " .. tostring(gamestate.score), 0, 50)
+        love.graphics.print("Block: " .. tostring(x) .. ", " .. tostring(y), 0, 90)
+        love.graphics.print("Score: " .. tostring(gamestate.score), 0, 100)
     end
 end
 
@@ -1182,6 +1232,8 @@ function love.mousereleased(x, y, button, istouch, presses)
     end
     if button == 1 and gamestate.isPaused then
         gamestate.isPaused = false
+    elseif button == 1 and not gamestate.isPaused and x < 50 and y < 50 then
+        gamestate.isPaused = true
     end
 end
 
