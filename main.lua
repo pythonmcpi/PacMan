@@ -976,30 +976,6 @@ local function load_map()
     map.loaded = true
 end
 
-local function newGhost(x, y)
-    local ghost = {}
-    ghost.x = x or 14*14-7
-    ghost.y = y or 12*14
-    ghost.direction = 0
-    function ghost:update() end
-    function ghost:draw() end
-    return ghost
-end
-
-local function newBlinky(x, y)
-    local ghost = newGhost(x, y)
-    function ghost:draw()
-        love.graphics.draw(cache.spritesheet, animation.blinky[self.direction+1][1], self.x, self.y)
-    end
-    return ghost
-end
-
-local function reset()
-    gamestate.player = {x = 196, y = 343, direction = 0, new_direction = 0, animframe = 0}
-    gamestate.blinky = newBlinky()
-    gamestate.ghostmode = 0 -- Chase mode
-end
-
 local function align(x, y)
     return math.floor(x/14)*14, math.floor(y/14)*14
 end
@@ -1008,88 +984,143 @@ local function getTile(x, y)
     return math.floor(x/14), math.floor(y/14)-1
 end
 
-local function dirToVel()
-    local vel = {x = 0, y = 0}
-    local player = gamestate.player
-    if player.direction == 0 then
-        vel.x = 1
-    elseif player.direction == 1 then
-        vel.y = 1
-    elseif player.direction == 2 then
-        vel.x = -1
-    else
-        vel.y = -1
-    end
-    return vel
+-- OOP Style Stuff
+
+local function newMovable(x, y, direction)
+    local movable = {}
+    movable.x = x or 0
+    movable.y = y or 0
+    movable.direction = direction or 0
+    return movable
 end
 
-local function ndirToVel()
-    local vel = {x = 0, y = 0}
-    local player = gamestate.player
-    if player.new_direction == 0 then
-        vel.x = 1
-    elseif player.new_direction == 1 then
-        vel.y = 1
-    elseif player.new_direction == 2 then
-        vel.x = -1
-    else
-        vel.y = -1
+local function newPacman(x, y, direction)
+    x = x or 196
+    y = y or 343
+    direction = direction or 0
+    local pacman = newMovable(x, y, direction)
+    pacman.new_direction = pacman.direction
+    pacman.animframe = 0
+    function pacman:update()
+        local speed = 1
+        local tilex, tiley = getTile(self.x, self.y)
+        if tilex == 28 and tiley == 14 and self.direction == 0 then
+            self.x = -7 -- teleport him to the other side
+            self.new_direction, self.direction = 0, 0
+        elseif tilex == -1 and tiley == 14 and self.direction == 2 then
+            self.x = 28*14+7 -- teleport him to the other side
+            self.new_direction, self.direction = 2, 2
+        elseif self:check_pos() then
+            local vel = self:dirToVel()
+            self.x = self.x + vel.x * speed
+            self.y = self.y + vel.y * speed
+        end
     end
-    return vel
+    function pacman:check_pos()
+        local vel = self:dirToVel()
+        local turn = self:ndirToVel()
+        if (self.x-7)%14 == 0 and (self.y-7)%14 == 0 then
+            -- Check for pellets on current tile
+            local curpos = {}
+            curpos.x, curpos.y = getTile(self.x, self.y)
+            
+            if map_layout[curpos.y+1][curpos.x+1][1] == 9 then -- pellet
+                map_layout[curpos.y+1][curpos.x+1][1] = 12 -- blank
+                gamestate.score = gamestate.score + 10
+            elseif map_layout[curpos.y+1][curpos.x+1][1] == 10 then -- power pellet
+                map_layout[curpos.y+1][curpos.x+1][1] = 12 -- blank
+                gamestate.score = gamestate.score + 10
+                -- scare ghosts
+            end
+
+            local newpos = {}
+            newpos.x, newpos.y = getTile(self.x, self.y)
+            newpos.x, newpos.y = newpos.x + turn.x, newpos.y + turn.y
+            
+            if map_layout[newpos.y + 1][newpos.x + 1][3] then
+                if map_layout[curpos.y + vel.y + 1][curpos.x + vel.x + 1][3] then
+                    return false
+                else
+                    return true
+                end
+            else
+                self.direction = self.new_direction
+                return true
+            end
+        else
+            if (self.direction-self.new_direction)%2 == 0 then
+                self.direction = self.new_direction
+            end
+            local tx, ty = getTile(self.x, self.y)
+            if map_layout[ty+1][tx+1][1] == 9 then -- pellet
+                map_layout[ty+1][tx+1][1] = 12 -- blank
+                gamestate.score = gamestate.score + 10
+            elseif map_layout[ty+1][tx+1][1] == 10 then -- power pellet
+                map_layout[ty+1][tx+1][1] = 12 -- blank
+                gamestate.score = gamestate.score + 10
+            end
+            return true
+        end
+    end
+    function pacman:draw()
+        love.graphics.draw(cache.spritesheet, animation.pacman[math.floor(self.animframe)%2+1], self.x, self.y, self.direction*0.5*3.14159, 1, 1, 7, 7)
+    end
+    function pacman:dirToVel()
+        local vel = {x = 0, y = 0}
+        if self.direction == 0 then
+            vel.x = 1
+        elseif self.direction == 1 then
+            vel.y = 1
+        elseif self.direction == 2 then
+            vel.x = -1
+        else
+            vel.y = -1
+        end
+        return vel
+    end
+    function pacman:ndirToVel()
+        local vel = {x = 0, y = 0}
+        if self.new_direction == 0 then
+            vel.x = 1
+        elseif self.new_direction == 1 then
+            vel.y = 1
+        elseif self.new_direction == 2 then
+            vel.x = -1
+        else
+            vel.y = -1
+        end
+        return vel
+    end
+    return pacman
+end
+
+local function newGhost(x, y, direction)
+    local ghost = newMovable(x, y, direction)
+    function ghost:update() end
+    function ghost:draw() end
+    return ghost
+end
+
+local function newBlinky(x, y, direction)
+    x = x or 14*14-7
+    y = y or 12*14
+    local ghost = newGhost(x, y, direction)
+    function ghost:draw()
+        love.graphics.draw(cache.spritesheet, animation.blinky[self.direction+1][1], self.x, self.y)
+    end
+    return ghost
+end
+
+local function reset()
+    gamestate.player = newPacman()
+    gamestate.blinky = newBlinky()
+    gamestate.ghostmode = 0 -- Chase mode
 end
 
 local function reset_game()
     map_layout = {}
     create_layout()
     reset()
-end
-
-local function check_pos()
-    local vel = dirToVel()
-    local turn = ndirToVel()
-    local player = gamestate.player
-    if (player.x-7)%14 == 0 and (player.y-7)%14 == 0 then
-        -- Check for pellets on current tile
-        local curpos = {}
-        curpos.x, curpos.y = getTile(player.x, player.y)
-        
-        if map_layout[curpos.y+1][curpos.x+1][1] == 9 then -- pellet
-            map_layout[curpos.y+1][curpos.x+1][1] = 12 -- blank
-            gamestate.score = gamestate.score + 10
-        elseif map_layout[curpos.y+1][curpos.x+1][1] == 10 then -- power pellet
-            map_layout[curpos.y+1][curpos.x+1][1] = 12 -- blank
-            gamestate.score = gamestate.score + 10
-            -- scare ghosts
-        end
-
-        local newpos = {}
-        newpos.x, newpos.y = getTile(player.x, player.y)
-        newpos.x, newpos.y = newpos.x + turn.x, newpos.y + turn.y
-        
-        if map_layout[newpos.y + 1][newpos.x + 1][3] then
-            if map_layout[curpos.y + vel.y + 1][curpos.x + vel.x + 1][3] then
-                return false
-            else
-                return true
-            end
-        else
-            player.direction = player.new_direction
-            return true
-        end
-    else
-        if (player.direction-player.new_direction)%2 == 0 then
-            player.direction = player.new_direction
-        end
-        local tx, ty = getTile(player.x, player.y)
-        if map_layout[ty+1][tx+1][1] == 9 then -- pellet
-            map_layout[ty+1][tx+1][1] = 12 -- blank
-            gamestate.score = gamestate.score + 10
-        elseif map_layout[ty+1][tx+1][1] == 10 then -- power pellet
-            map_layout[ty+1][tx+1][1] = 12 -- blank
-            gamestate.score = gamestate.score + 10
-        end
-        return true
-    end
 end
 
 function love.load()
@@ -1110,30 +1141,7 @@ local function update()
             reset_game()
             gamestate.level = gamestate.level + 1
         end
-        local player = gamestate.player
-        local id = love.keyboard.isDown
-        if id("right") or id("d") or id("l") then
-            player.new_direction = 0
-        elseif id("down") or id("s") or id("k") then
-            player.new_direction = 1
-        elseif id("left") or id("a") or id("j") then
-            player.new_direction = 2
-        elseif id("up") or id("w") or id("i") then
-            player.new_direction = 3
-        end
-        local speed = 1
-        local tilex, tiley = getTile(player.x, player.y)
-        if tilex == 28 and tiley == 14 and player.direction == 0 then
-            player.x = -7 -- teleport him to the other side
-            player.new_direction, player.direction = 0, 0
-        elseif tilex == -1 and tiley == 14 and player.direction == 2 then
-            player.x = 28*14+7 -- teleport him to the other side
-            player.new_direction, player.direction = 2, 2
-        elseif check_pos() then
-            local vel = dirToVel()
-            player.x = player.x + vel.x * speed
-            player.y = player.y + vel.y * speed
-        end
+        gamestate.player:update()
     end
 end
 
@@ -1172,8 +1180,8 @@ function love.draw()
     if debugEnabled then
         local ax, ay = align(gamestate.player.x, gamestate.player.y)
         love.graphics.rectangle('line', ax, ay, 14, 14)
-        local vel = dirToVel()
-        local turn = ndirToVel()
+        local vel = gamestate.player:dirToVel()
+        local turn = gamestate.player:ndirToVel()
         ax, ay = align(gamestate.player.x + vel.x*14, gamestate.player.y + vel.y*14)
         love.graphics.rectangle('line', ax, ay, 14, 14)
         ax, ay = align(gamestate.player.x + turn.x*14, gamestate.player.y + turn.y*14)
@@ -1183,7 +1191,7 @@ function love.draw()
         love.graphics.rectangle('line', ax, ay, 14, 14)
         love.graphics.setColor(1, 1, 1, 1)
     end
-    love.graphics.draw(spritesheet, animation.pacman[math.floor(gamestate.player.animframe)%2+1], gamestate.player.x, gamestate.player.y, gamestate.player.direction*0.5*3.14159, 1, 1, 7, 7)
+    gamestate.player:draw()
     gamestate.blinky:draw()
     --love.graphics.rectangle('line', 0, 14, 28*14, 31*14)
     love.graphics.setCanvas()
@@ -1223,6 +1231,16 @@ function love.keypressed(k)
     end
     if k == 'escape' then
         gamestate.isPaused = not gamestate.isPaused
+    elseif not gamestate.isPaused then
+        if k == "right" or k == "d" or k == "l" then
+            gamestate.player.new_direction = 0
+        elseif k == "down" or k == "s" or k == "k" then
+            gamestate.player.new_direction = 1
+        elseif k == "left" or k == "a" or k == "j" then
+            gamestate.player.new_direction = 2
+        elseif k == "up" or k == "w" or k == "i" then
+            gamestate.player.new_direction = 3
+        end
     end
 end
 
