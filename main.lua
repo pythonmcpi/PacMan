@@ -2,7 +2,12 @@
 A recreation of pacman in love2d.
 
 Todo:
+- Movement speed
+  - Ghost speed
+  - [done] pacman speed
 - Ghosts
+  - Only turn at a corner
+  - Should keep moving even if at pacman
   - Blinky
   - Pinky
   - Inky
@@ -12,19 +17,26 @@ Todo:
 - Life count display
 - Cheats (accessed using the Konami code)
   - Noclip (snap to grid when disabling)
+    - Need to ensure that you can still turn
+    - Anticrash
 - Transitions
   - Countdown before starting
 - Menu
 - Highscores
-- Don't animate pacman when at wall
+- Don't animate pacman when at wall/not moving
 
 Notes:
 - A lot of sprites will need to be offset by 7 to fix rotation
-- bump.lua may not end up being used
-- Consolas.ttf may not end up being used
+- Cornering is unimplemented (cornering = turning early)
+- Eating pellets does not slow you down
+- Map will not change
+- Pacman will not speed up after eating a power pellet (on early levels)
+- Speed mechanics are taken from https://www.gamasutra.com/view/feature/3938/the_pacman_dossier.php?print=1
+  - Other game mechanics are based on information from elsewhere, and may be incorrect
 ]]
 
 local lovesize = require("lovesize")
+local a_star = require("a-star/astar") -- From this unmerged PR: https://github.com/lattejed/a-star-lua/pull/4
 
 local cache = {}
 local gamestate = { isPaused = false, score = 0, lives = 3, level = 1 }
@@ -33,6 +45,22 @@ local animation = {pacman = {}, blinky = {{}, {}, {}, {}}}
 
 -- Map keys based on quad indexes
 local map_layout = {}
+local pathfinding_map = {}
+function a_star.distance(x1, y1, x2, y2) -- We need to override the default and use manhattan distance because diagonals are not allowed
+    return math.abs(x1 - x2) + math.abs(y1 - y2)
+end
+local function is_valid(node, neighbor) --print("Validity check", node.x, node.y, neighbor.x, neighbor.y)
+    --[[love.update(0.01)
+    love.graphics.clear()
+    love.draw()
+    if not neighbor.wall then
+        lovesize.begin()
+        love.graphics.rectangle('line', node.x*14-14, node.y*14, 14, 14)
+        love.graphics.rectangle('line', neighbor.x*14-14, neighbor.y*14, 14, 14)
+        lovesize.finish()
+        love.graphics.present()
+    end]]
+    return not neighbor.wall and a_star.distance(node.x, node.y, neighbor.x, neighbor.y) == 1 end
 local function create_layout()
     local wall_corner_out = 1
     local wall_corner_in = 2
@@ -927,6 +955,7 @@ local function create_layout()
                 c[4] = c[3]
                 c[3] = false
             end
+            table.insert(pathfinding_map, { x = x, y = y, wall = c[3] })
         end
     end
 end
@@ -938,6 +967,7 @@ local buffer
 
 local debugEnabled = true
 local ultraVerbose = false
+local pathfindDebug = false
 
 local function load_map()
     if map.loaded then
@@ -1001,8 +1031,18 @@ local function newPacman(x, y, direction)
     local pacman = newMovable(x, y, direction)
     pacman.new_direction = pacman.direction
     pacman.animframe = 0
+    if gamestate.level == 1 then
+        pacman.speed = 8 -- 80% of max speed
+    elseif gamestate.level < 5  then -- Levels 2-4, since level 1 is already handled
+        pacman.speed = 9 -- 90%
+    elseif gamestate.level < 21 then -- Levels 5-20
+        pacman.speed = 10 -- 100%
+    else
+        pacman.speed = 9 -- 90%
+    end
+    pacman.movepart = 0
     function pacman:update()
-        local speed = 1
+        local speed = 1 -- Extra multiplier for speed
         local tilex, tiley = getTile(self.x, self.y)
         if tilex == 28 and tiley == 14 and self.direction == 0 then
             self.x = -7 -- teleport him to the other side
@@ -1010,16 +1050,22 @@ local function newPacman(x, y, direction)
         elseif tilex == -1 and tiley == 14 and self.direction == 2 then
             self.x = 28*14+7 -- teleport him to the other side
             self.new_direction, self.direction = 2, 2
-        elseif self:check_pos() then
-            local vel = self:dirToVel()
-            self.x = self.x + vel.x * speed
-            self.y = self.y + vel.y * speed
+        elseif self:check_pos() then -- Warning: self:check_pos has side effects!
+            self.movepart = self.movepart + self.speed
+            if self.movepart > 10 then
+                self.movepart = self.movepart - 10
+                local vel = self:dirToVel()
+                self.x = self.x + vel.x * speed
+                self.y = self.y + vel.y * speed
+            end
         end
     end
     function pacman:check_pos()
         local vel = self:dirToVel()
         local turn = self:ndirToVel()
         if (self.x-7)%14 == 0 and (self.y-7)%14 == 0 then
+            gamestate.blinky:retarget()
+            gamestate.blinky.has_path = false
             -- Check for pellets on current tile
             local curpos = {}
             curpos.x, curpos.y = getTile(self.x, self.y)
@@ -1037,7 +1083,8 @@ local function newPacman(x, y, direction)
             newpos.x, newpos.y = getTile(self.x, self.y)
             newpos.x, newpos.y = newpos.x + turn.x, newpos.y + turn.y
             
-            if map_layout[newpos.y + 1][newpos.x + 1][3] then
+            local npc = map_layout[newpos.y + 1][newpos.x + 1]
+            if npc and npc[3] then
                 if map_layout[curpos.y + vel.y + 1][curpos.x + vel.x + 1][3] then
                     return false
                 else
@@ -1096,8 +1143,66 @@ end
 
 local function newGhost(x, y, direction)
     local ghost = newMovable(x, y, direction)
-    function ghost:update() end
+    function ghost:update()
+        if self.path and #self.path > 0 then
+            if (self.x)%14 == 0 and (self.y)%14 == 0 then
+                local nextmove = self.path[1]
+                local cx, cy = getTile(self.x, self.y)
+                if nextmove.x-1 == cx and nextmove.y-1 == cy then
+                    table.remove(self.path, 1)
+                    if #self.path == 0 then
+                        return
+                    else
+                        nextmove = self.path[1]
+                    end
+                end
+                
+                if nextmove.x-1 > cx then
+                    self.direction = 0
+                elseif nextmove.x-1 < cx then
+                    self.direction = 2
+                elseif nextmove.y > cy+1 then
+                    self.direction = 1
+                elseif nextmove.y < cy+1 then
+                    self.direction = 3
+                end
+            end
+            if self.direction == 0 then
+                self.x = self.x + 1
+            elseif self.direction == 1 then
+                self.y = self.y + 1
+            elseif self.direction == 2 then
+                self.x = self.x - 1
+            else
+                self.y = self.y - 1
+            end
+        end
+        self:findpath()
+    end
     function ghost:draw() end
+    ghost.path = {}
+    ghost.has_path = false
+    ghost.target = { x = 0, y = 0 }
+    function ghost:findpath()
+        if self.has_path then return else self.has_path = true end
+        local curx, cury = getTile(self.x, self.y)
+        local curt = nil
+        local tart = nil
+        for i, n in ipairs(pathfinding_map) do
+            if n.x == curx+1 and n.y == cury+1 then
+                curt = n
+            end
+            if n.x == self.target.x + 1 and n.y == self.target.y + 1 then
+                tart = n
+            end
+            if curt and tart then break end
+        end
+        if not curt or not tart then
+            return
+        end
+        self.path = a_star.path( curt, tart, pathfinding_map, is_valid, pathfindDebug, lovesize)
+        if self.path and #self.path > 0 then table.remove(self.path, 1) end
+    end
     return ghost
 end
 
@@ -1107,6 +1212,10 @@ local function newBlinky(x, y, direction)
     local ghost = newGhost(x, y, direction)
     function ghost:draw()
         love.graphics.draw(cache.spritesheet, animation.blinky[self.direction+1][1], self.x, self.y)
+    end
+    function ghost:retarget()
+        self.target.x, self.target.y = getTile(gamestate.player.x, gamestate.player.y)
+        self:findpath()
     end
     return ghost
 end
@@ -1127,7 +1236,6 @@ function love.load()
     lovesize.set(395, 476)
     buffer = love.graphics.newCanvas(395, 490)
     reset()
-    cache.font = love.graphics.newFont("assets/consolas.ttf", 35)
     cache.spritesheet = love.graphics.newImage("assets/sprites.png")
     load_map() -- Load map related quads
     map_key = {map.wall_corner_out, map.wall_corner_in, map.wall, map.cage_corner, map.cage, map.outer_wall_corner_out, map.outer_wall_corner_in, map.outer_wall, map.pellet, map.power_pellet, map.cage_door, map.blank}
@@ -1142,6 +1250,7 @@ local function update()
             gamestate.level = gamestate.level + 1
         end
         gamestate.player:update()
+        gamestate.blinky:update()
     end
 end
 
@@ -1149,7 +1258,7 @@ do
     local time_past = 0
     function love.update(dt)
         time_past = time_past + dt
-        if time_past > 3 then
+        if time_past > 0.5 then
             time_past = 0
         end
         while time_past >= 0.016 do -- 0.016 is approx. 1/60 (game should run at 60 fps)
@@ -1189,6 +1298,15 @@ function love.draw()
         ax, ay = align(gamestate.blinky.x, gamestate.blinky.y)
         love.graphics.setColor(1, 0, 0, 1)
         love.graphics.rectangle('line', ax, ay, 14, 14)
+        if gamestate.blinky.path then
+            for i, node in ipairs( gamestate.blinky.path ) do
+                love.graphics.rectangle('line', node.x*14-14, node.y*14, 14, 14)
+            end
+            if #gamestate.blinky.path > 0 then
+                love.graphics.setColor(0, 0, 1, 1)
+                love.graphics.rectangle('line', gamestate.blinky.path[1].x*14-14, gamestate.blinky.path[1].y*14, 14, 14)
+            end
+        end
         love.graphics.setColor(1, 1, 1, 1)
     end
     gamestate.player:draw()
@@ -1240,7 +1358,14 @@ function love.keypressed(k)
             gamestate.player.new_direction = 2
         elseif k == "up" or k == "w" or k == "i" then
             gamestate.player.new_direction = 3
+        elseif k == "p" and pathfindDebug then
+            gamestate.blinky:retarget()
         end
+    elseif k == "t" and gamestate.isPaused then
+        gamestate.isPaused = false
+        update()
+        gamestate.isPaused = true
+        
     end
 end
 
