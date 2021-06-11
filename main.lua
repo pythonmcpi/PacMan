@@ -1,24 +1,31 @@
 --[[ Pacman
-A recreation of pacman in love2d.
+A recreation of pacman in love2d.   
 
 Todo:
+- Fix the next level detection (since eating ghosts provides extra points)
 - Movement speed
   - Ghost speed
+    - Slow down when in wrap around tunnel maybe?
   - [done] pacman speed
 - Ghosts
   - Only turn at a corner
   - Should keep moving even if at pacman
+    - Need to do collision though
+  - Moving through tunnel
+  - Pathfinding through tunnel? Need to modify the cost function
   - Blinky
   - Pinky
   - Inky
   - Clyde
 - Dying
+  - Don't reset dots
 - Level count display
 - Life count display
 - Cheats (accessed using the Konami code)
   - Noclip (snap to grid when disabling)
     - Need to ensure that you can still turn
     - Anticrash
+  - Godmode
 - Transitions
   - Countdown before starting
 - Menu
@@ -44,8 +51,8 @@ local map = { loaded = false } -- Map quad cache
 local animation = {pacman = {}, blinky = {{}, {}, {}, {}}}
 
 -- Map keys based on quad indexes
-local map_layout = {}
-local pathfinding_map = {}
+local map_layout
+local pathfinding_map
 function a_star.distance(x1, y1, x2, y2) -- We need to override the default and use manhattan distance because diagonals are not allowed
     return math.abs(x1 - x2) + math.abs(y1 - y2)
 end
@@ -62,6 +69,8 @@ local function is_valid(node, neighbor) --print("Validity check", node.x, node.y
     end]]
     return not neighbor.wall and a_star.distance(node.x, node.y, neighbor.x, neighbor.y) == 1 end
 local function create_layout()
+    map_layout = {}
+    pathfinding_map = {}
     local wall_corner_out = 1
     local wall_corner_in = 2
     local wall = 3
@@ -1182,7 +1191,7 @@ local function newGhost(x, y, direction)
     function ghost:draw() end
     ghost.path = {}
     ghost.has_path = false
-    ghost.target = { x = 0, y = 0 }
+    ghost.target = { x = 14, y = 23 }
     function ghost:findpath()
         if self.has_path then return else self.has_path = true end
         local curx, cury = getTile(self.x, self.y)
@@ -1227,7 +1236,6 @@ local function reset()
 end
 
 local function reset_game()
-    map_layout = {}
     create_layout()
     reset()
 end
@@ -1246,8 +1254,8 @@ local function update()
         
     else
         if gamestate.score == 2440 * gamestate.level then
-            reset_game()
             gamestate.level = gamestate.level + 1
+            reset_game()
         end
         gamestate.player:update()
         gamestate.blinky:update()
@@ -1340,6 +1348,8 @@ function love.draw()
         x, y = getTile(gamestate.player.x, gamestate.player.y)
         love.graphics.print("Block: " .. tostring(x) .. ", " .. tostring(y), 0, 90)
         love.graphics.print("Score: " .. tostring(gamestate.score), 0, 100)
+        love.graphics.print("Level: " .. tostring(gamestate.level), 0, 110)
+        love.graphics.print("Speed: " .. tostring(gamestate.player.speed) .. "0%", 0, 120)
     end
 end
 
@@ -1349,6 +1359,10 @@ function love.keypressed(k)
     end
     if k == 'escape' then
         gamestate.isPaused = not gamestate.isPaused
+    elseif k == "r" and debugEnabled then
+        gamestate.score = 2440 * gamestate.level
+        gamestate.level = gamestate.level + 1
+        reset_game()
     elseif not gamestate.isPaused then
         if k == "right" or k == "d" or k == "l" then
             gamestate.player.new_direction = 0
@@ -1361,11 +1375,6 @@ function love.keypressed(k)
         elseif k == "p" and pathfindDebug then
             gamestate.blinky:retarget()
         end
-    elseif k == "t" and gamestate.isPaused then
-        gamestate.isPaused = false
-        update()
-        gamestate.isPaused = true
-        
     end
 end
 
