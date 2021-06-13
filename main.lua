@@ -3,6 +3,7 @@ A recreation of pacman in love2d.
 
 Todo:
 - Fix the next level detection (since eating ghosts provides extra points)
+- Scaring ghosts
 - Movement speed
   - Ghost speed
     - Slow down when in wrap around tunnel maybe?
@@ -46,9 +47,9 @@ local lovesize = require("lovesize")
 local a_star = require("a-star/astar") -- From this unmerged PR: https://github.com/lattejed/a-star-lua/pull/4
 
 local cache = {}
-local gamestate = { isPaused = false, score = 0, lives = 3, level = 1 }
+local gamestate = { isPaused = false, gameOver = false, score = 0, lives = 3, level = 1 }
 local map = { loaded = false } -- Map quad cache
-local animation = {pacman = {}, blinky = {{}, {}, {}, {}}}
+local animation = {pacman = {}, blinky = {{}, {}, {}, {}}, pacmandead = {}}
 
 -- Map keys based on quad indexes
 local map_layout
@@ -1012,6 +1013,20 @@ local function load_map()
     table.insert(animation.blinky[3], love.graphics.newQuad(52, 65, 14, 14, w, h))
     table.insert(animation.blinky[4], love.graphics.newQuad(68, 65, 14, 14, w, h)) -- Up
     table.insert(animation.blinky[4], love.graphics.newQuad(84, 65, 14, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(36, 0, 14, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(52, 0, 14, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(67, 0, 16, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(83, 0, 16, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(99, 0, 16, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(115, 0, 16, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(131, 0, 16, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(148, 1, 14, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(164, 1, 14, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(180, 1, 14, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(196, 1, 14, 14, w, h))
+    table.insert(animation.pacmandead, love.graphics.newQuad(212, 2, 14, 14, w, h))
+    cache.gameover_game = love.graphics.newQuad(60, 151, 26, 7, w, h)
+    cache.gameover_over = love.graphics.newQuad(74, 141, 26, 7, w, h)
     map.loaded = true
 end
 
@@ -1038,6 +1053,7 @@ local function newPacman(x, y, direction)
     y = y or 343
     direction = direction or 0
     local pacman = newMovable(x, y, direction)
+    pacman.dead = false
     pacman.new_direction = pacman.direction
     pacman.animframe = 0
     if gamestate.level == 1 then
@@ -1051,23 +1067,34 @@ local function newPacman(x, y, direction)
     end
     pacman.movepart = 0
     function pacman:update()
-        local speed = 1 -- Extra multiplier for speed
-        local tilex, tiley = getTile(self.x, self.y)
-        if tilex == 28 and tiley == 14 and self.direction == 0 then
-            self.x = -7 -- teleport him to the other side
-            self.new_direction, self.direction = 0, 0
-        elseif tilex == -1 and tiley == 14 and self.direction == 2 then
-            self.x = 28*14+7 -- teleport him to the other side
-            self.new_direction, self.direction = 2, 2
-        elseif self:check_pos() then -- Warning: self:check_pos has side effects!
-            self.movepart = self.movepart + self.speed
-            if self.movepart > 10 then
-                self.movepart = self.movepart - 10
-                local vel = self:dirToVel()
-                self.x = self.x + vel.x * speed
-                self.y = self.y + vel.y * speed
+        if not self.dead then
+            local speed = 1 -- Extra multiplier for speed
+            local tilex, tiley = getTile(self.x, self.y)
+            if tilex == 28 and tiley == 14 and self.direction == 0 then
+                self.x = -7 -- teleport him to the other side
+                self.new_direction, self.direction = 0, 0
+            elseif tilex == -1 and tiley == 14 and self.direction == 2 then
+                self.x = 28*14+7 -- teleport him to the other side
+                self.new_direction, self.direction = 2, 2
+            elseif self:check_pos() then -- Warning: self:check_pos has side effects!
+                self.movepart = self.movepart + self.speed
+                if self.movepart > 10 then
+                    self.movepart = self.movepart - 10
+                    local vel = self:dirToVel()
+                    self.x = self.x + vel.x * speed
+                    self.y = self.y + vel.y * speed
+                end
+                local px, py = getTile(self.x, self.y)
+                local bx, by = getTile(gamestate.blinky.x, gamestate.blinky.y)
+                if px == bx and py == by then
+                    self:die()
+                end
             end
         end
+    end
+    function pacman:die()
+        self.dead = true
+        self.animframe = 0
     end
     function pacman:check_pos()
         local vel = self:dirToVel()
@@ -1119,7 +1146,11 @@ local function newPacman(x, y, direction)
         end
     end
     function pacman:draw()
-        love.graphics.draw(cache.spritesheet, animation.pacman[math.floor(self.animframe)%2+1], self.x, self.y, self.direction*0.5*3.14159, 1, 1, 7, 7)
+        if not pacman.dead then
+            love.graphics.draw(cache.spritesheet, animation.pacman[math.floor(self.animframe)%2+1], self.x, self.y, self.direction*0.5*3.14159, 1, 1, 7, 7)
+        else
+            love.graphics.draw(cache.spritesheet, animation.pacmandead[math.floor(self.animframe)%12+1], self.x, self.y, 0, 1, 1, 7, 7)
+        end
     end
     function pacman:dirToVel()
         local vel = {x = 0, y = 0}
@@ -1152,6 +1183,15 @@ end
 
 local function newGhost(x, y, direction)
     local ghost = newMovable(x, y, direction)
+    if gamestate.level == 1 then
+        ghost.speed = 7.5
+    elseif gamestate.level < 5 then
+        ghost.speed = 8.5
+    else
+        ghost.speed = 9.5 -- 5-20 and 21+ are both 95% speed
+    end
+    ghost.movepart = 0
+    ghost.animframe = 0
     function ghost:update()
         if self.path and #self.path > 0 then
             if (self.x)%14 == 0 and (self.y)%14 == 0 then
@@ -1176,14 +1216,18 @@ local function newGhost(x, y, direction)
                     self.direction = 3
                 end
             end
-            if self.direction == 0 then
-                self.x = self.x + 1
-            elseif self.direction == 1 then
-                self.y = self.y + 1
-            elseif self.direction == 2 then
-                self.x = self.x - 1
-            else
-                self.y = self.y - 1
+            self.movepart = self.movepart + self.speed
+            if self.movepart > 10 then
+                self.movepart = self.movepart - 10
+                if self.direction == 0 then
+                    self.x = self.x + 1
+                elseif self.direction == 1 then
+                    self.y = self.y + 1
+                elseif self.direction == 2 then
+                    self.x = self.x - 1
+                else
+                    self.y = self.y - 1
+                end
             end
         end
         self:findpath()
@@ -1220,7 +1264,9 @@ local function newBlinky(x, y, direction)
     y = y or 12*14
     local ghost = newGhost(x, y, direction)
     function ghost:draw()
-        love.graphics.draw(cache.spritesheet, animation.blinky[self.direction+1][1], self.x, self.y)
+        if not gamestate.player.dead then
+            love.graphics.draw(cache.spritesheet, animation.blinky[self.direction+1][math.floor(self.animframe)%2+1], self.x, self.y)
+        end
     end
     function ghost:retarget()
         self.target.x, self.target.y = getTile(gamestate.player.x, gamestate.player.y)
@@ -1250,12 +1296,20 @@ function love.load()
 end
 
 local function update()
-    if gamestate.isPaused then
+    if gamestate.isPaused or gamestate.gameOver then
         
     else
         if gamestate.score == 2440 * gamestate.level then
             gamestate.level = gamestate.level + 1
             reset_game()
+        elseif gamestate.player.dead and gamestate.player.animframe >= 12 then
+            gamestate.lives = gamestate.lives - 1
+            if gamestate.lives == 0 then
+                gamestate.gameOver = true
+                gamestate.player.animframe = 11
+            else
+                reset() -- This doesn't reset dots
+            end
         end
         gamestate.player:update()
         gamestate.blinky:update()
@@ -1324,14 +1378,22 @@ function love.draw()
     lovesize.begin()
     love.graphics.draw(buffer)
     
+    if gamestate.gameOver then
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.rectangle('fill', 139, 169, 114, 16)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(cache.spritesheet, cache.gameover_game, 140, 170, 0, 2, 2)
+        love.graphics.draw(cache.spritesheet, cache.gameover_over, 200, 170, 0, 2, 2)
+    end
     if gamestate.isPaused then
         love.graphics.setColor(1, 1, 1, 0.3)
         love.graphics.rectangle('fill', 0, 0, 395, 476)
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.rectangle('fill', 160, 200, 25, 81)
         love.graphics.rectangle('fill', 210, 200, 25, 81)
-    else
+    elseif not gamestate.gameOver then
         gamestate.player.animframe = gamestate.player.animframe + 0.1
+        gamestate.blinky.animframe = gamestate.blinky.animframe + 0.1
     end
     
     lovesize.finish()
@@ -1350,6 +1412,7 @@ function love.draw()
         love.graphics.print("Score: " .. tostring(gamestate.score), 0, 100)
         love.graphics.print("Level: " .. tostring(gamestate.level), 0, 110)
         love.graphics.print("Speed: " .. tostring(gamestate.player.speed) .. "0%", 0, 120)
+        love.graphics.print("Lives: " .. tostring(gamestate.lives), 0, 130)
     end
 end
 
